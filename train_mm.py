@@ -6,17 +6,26 @@ import argparse
 from modules import transform, resnet, network, contrastive_loss
 from utils import yaml_config_hook, save_model
 from torch.utils import data
+from transformers import BertModel
 
 from cub import CUB200
 
 
 def train():
     loss_epoch = 0
-    for step, ((x_i, x_j), _) in enumerate(data_loader):
+    for step, ((x_i, x_j), (input_ids, token_type_ids, attention_mask), label) in enumerate(data_loader):
         optimizer.zero_grad()
         x_i = x_i.to('cuda')
         x_j = x_j.to('cuda')
-        z_i, z_j, c_i, c_j = model(x_i, x_j)
+        input_ids = input_ids.to("cuda")
+        token_type_ids = token_type_ids.to("cuda")
+        attention_mask = attention_mask.to("cuda")
+        z_i, z_j, c_i, c_j = model(
+            x_i, x_j,
+            input_ids=input_ids,
+            token_type_ids=token_type_ids,
+            attention_mask=attention_mask,
+        )
         loss_instance = criterion_instance(z_i, z_j)
         loss_cluster = criterion_cluster(c_i, c_j)
         loss = loss_instance + loss_cluster
@@ -116,7 +125,11 @@ if __name__ == "__main__":
     )
     # initialize model
     res = resnet.get_resnet(args.resnet)
-    model = network.Network(res, args.feature_dim, class_num)
+    bert = BertModel.from_pretrained("bert-base-uncased")
+    for param in bert.parameters():
+        param.requires_grad = False
+    bert.eval()
+    model = network.Network(res, args.feature_dim, class_num, bert=bert)
     model = model.to('cuda')
     # optimizer / loss
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
